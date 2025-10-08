@@ -10,7 +10,7 @@ const Qdrant = require("./qdrant.service.js");
 async function createEvaluation(data) {
     const checkJob = await JobRepository.getJobByCvIdOrProjectId(data);
 
-    if (checkJob.status != "queued") {
+    if (checkJob && checkJob.status != "queued") {
         throw new ErrHandler(400, "CV or Report has been evaluated or on evaluate process");
     }
 
@@ -79,8 +79,8 @@ ${cvRubric.parameters
 Candidate CV:
 ${cvText.slice(0, 4000)}
 
-Return JSON:
-{ "score": <number between 1 and 5>, "summary": string }
+Strictly return this JSON:
+{ "score": <number between 1 and 5 accumulate from report based on rubric and context>, "summary": string }
     `;
 
         const cvResult = await Gemini.generateGemini(promptCv);
@@ -95,7 +95,7 @@ Return JSON:
         // project report
         const promptProject = `
 Kamu adalah sistem evaluasi laporan proyek kandidat.
-Evaluasi **Project Report** berikut berdasarkan rubric yang diberikan untuk pekerjaan: "${
+Berikan penilaian Project Report berikut berdasarkan rubric yang diberikan untuk pekerjaan: "${
             job.jobTitle
         }".
 
@@ -110,8 +110,8 @@ ${reportRubric.parameters
 Candidate Project Report:
 ${reportText.slice(0, 4000)}
 
-Return JSON:
-{ "score": <number between 1 and 5>, "summary": string }
+Strictly return this JSON:
+{ "score": <number between 1 and 5 accumulate from report based on rubric and context>, "summary": string }
 `;
 
         const projectResult = await Gemini.generateGemini(promptProject);
@@ -119,6 +119,11 @@ Return JSON:
             score: 0,
             summary: "Failed to parse Project evaluation",
         };
+
+        console.log(projectResult);
+        console.log(projectJson);
+        
+        
 
         const overallSummary = await generateOverallSummary(
             cvJson,
