@@ -13,7 +13,7 @@ class UploadMiddleware {
         } else if (file.fieldname === "report") {
           dirPath = path.join(__dirname, "../../public/reports");
         } else {
-          return cb(new Error("Unknown file field"), false);
+          dirPath = path.join(__dirname, "../../public/data");
         }
 
         if (!fs.existsSync(dirPath)) {

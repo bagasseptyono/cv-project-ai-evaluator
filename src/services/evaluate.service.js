@@ -2,6 +2,7 @@ const JobRepository = require("../repositories/job.repository");
 const ErrHandler = require("../utils/error.util");
 const FileUtil = require("../utils/file.util");
 const prisma = require("../config/prisma.config");
+const qdrant = require("../config/qdrant.config.js")
 
 const Gemini = require("./gemini.service.js");
 const Qdrant = require("./qdrant.service.js");
@@ -9,9 +10,9 @@ const Qdrant = require("./qdrant.service.js");
 async function createEvaluation(data) {
     const checkJob = await JobRepository.getJobByCvIdOrProjectId(data);
 
-    // if (checkJob.status != "queued") {
-    //     throw new ErrHandler(400, "CV or Report has been evaluated or on evaluate process");
-    // }
+    if (checkJob.status != "queued") {
+        throw new ErrHandler(400, "CV or Report has been evaluated or on evaluate process");
+    }
 
     const payload = {
         jobTitle: data.title,
@@ -45,11 +46,18 @@ async function runEvaluation(jobId) {
         const reportRubric = rubrics.find((r) => r.type === "project");
 
         // RAG - ambil konteks dari Qdrant
-        const cvContext = await Qdrant.retrieveRelevantContext(
+        const cvContext = await Qdrant.retrieveRubricsContext(
             `CV Evaluation for ${job.jobTitle}`
         );
-        const reportContext = await Qdrant.retrieveRelevantContext(
+        const reportContext = await Qdrant.retrieveRubricsContext(
             `report Evaluation for ${job.jobTitle}`
+        );
+
+        const jobDescContext = await Qdrant.retrieveDocumentsContext(
+            `Job Description ${job.jobTitle}`
+        );
+        const caseStudyContext = await Qdrant.retrieveDocumentsContext(
+            `Case Study Project`
         );
 
         const cvText = await FileUtil.extractText(job.cvFile.path);
@@ -61,7 +69,7 @@ Kamu adalah sistem evaluasi kandidat.
 Berikan penilaian terhadap CV dan laporan berikut untuk pekerjaan: "${
             job.title
         }".
-Context: ${cvContext}
+Context: ${cvContext} ${jobDescContext}
 
 Rubric:
 ${cvRubric.parameters
@@ -75,15 +83,14 @@ Return JSON:
 { "score": <number between 1 and 5>, "summary": string }
     `;
 
-
-
         const cvResult = await Gemini.generateGemini(promptCv);
-        const cvJson = safeParseJson(cvResult) || { score: 0, summary: "Failed to parse CV evaluation" };
-
+        const cvJson = safeParseJson(cvResult) || {
+            score: 0,
+            summary: "Failed to parse CV evaluation",
+        };
 
         console.log(cvJson);
         console.log(cvJson.score * 0.2);
-
 
         // project report
         const promptProject = `
@@ -93,7 +100,7 @@ Evaluasi **Project Report** berikut berdasarkan rubric yang diberikan untuk peke
         }".
 
 Context :
-${reportContext}
+${reportContext} ${caseStudyContext}
 
 Rubric:
 ${reportRubric.parameters
@@ -108,9 +115,16 @@ Return JSON:
 `;
 
         const projectResult = await Gemini.generateGemini(promptProject);
-        const projectJson = safeParseJson(projectResult) || { score: 0, summary: "Failed to parse Project evaluation" };
+        const projectJson = safeParseJson(projectResult) || {
+            score: 0,
+            summary: "Failed to parse Project evaluation",
+        };
 
-        const overallSummary = await generateOverallSummary(cvJson, projectJson, job.jobTitle);
+        const overallSummary = await generateOverallSummary(
+            cvJson,
+            projectJson,
+            job.jobTitle
+        );
 
         // 7️⃣ Simpan hasil ke database
         const result = await prisma.evaluationResult.create({
@@ -124,16 +138,28 @@ Return JSON:
         });
 
         console.log(result);
-        
+
         console.log("🎯 Evaluation completed and saved.");
 
         const evaluationVector = {
-                jobId : jobId,
-                cvScore: cvJson.score,
-                projectScore: projectJson.score,
-                overallSummary : overallSummary
-            }
-        const qdrantUpsert = await Qdrant.upsertCollection("evaluation_results", result.id, evaluationVector)
+            jobId: jobId,
+            cvScore: cvJson.score,
+            projectScore: projectJson.score,
+            overallSummary: overallSummary,
+        };
+
+        const checkcollection = await Qdrant.checkCollection("evaluation_results")
+		if (!checkcollection) {
+			await qdrant.recreateCollection("evaluation_results", {
+				vectors: { size: 768, distance: "Cosine" },
+			});
+		}
+
+        const qdrantUpsert = await Qdrant.upsertCollection(
+            "evaluation_results",
+            result.id,
+            evaluationVector
+        );
         if (!qdrantUpsert) {
             console.log("Failed Update Qdrant");
         }
@@ -153,21 +179,26 @@ Return JSON:
 }
 
 function safeParseJson(text) {
-  try {
-    // Cari kurung kurawal pertama dan terakhir
-    const first = text.indexOf("{");
-    const last = text.lastIndexOf("}");
-    if (first === -1 || last === -1) return null;
+    try {
+        // Cari kurung kurawal pertama dan terakhir
+        const first = text.indexOf("{");
+        const last = text.lastIndexOf("}");
+        if (first === -1 || last === -1) return null;
 
-    const jsonStr = text.slice(first, last + 1);
-    return JSON.parse(jsonStr);
-  } catch (err) {
-    return null;
-  }
+        const jsonStr = text.slice(first, last + 1);
+        return JSON.parse(jsonStr);
+    } catch (err) {
+        return null;
+    }
 }
 
-
-async function generateOverallSummary(cvResult, projectResult, cvContext, reportContext, jobTitle) {
+async function generateOverallSummary(
+    cvResult,
+    projectResult,
+    cvContext,
+    reportContext,
+    jobTitle
+) {
     const prompt = `
 Kamu adalah sistem evaluasi kandidat. Berdasarkan hasil evaluasi berikut, buat ringkasan singkat dan rekomendasi untuk kandidat pekerjaan: "${jobTitle}".
 
@@ -195,12 +226,56 @@ Keluarkan JSON:
     const rawResult = await Gemini.generateGemini(prompt);
 
     // Safe parse
-    const overallJson = safeParseJson(rawResult) || { overallSummary: "Failed to generate overall summary" };
+    const overallJson = safeParseJson(rawResult) || {
+        overallSummary: "Failed to generate overall summary",
+    };
     return overallJson.overallSummary;
 }
 
+async function getEvaluation(id) {
+    const job = await prisma.job.findUnique({
+        where: { id: parseInt(id) },
+        include: { result: true },
+    });
 
+    if (!job) {
+        const error = new Error("Job not found");
+        error.statusCode = 404;
+        throw error;
+    }
+
+    // Jika masih dalam antrian atau proses
+    if (job.status === "queued" || job.status === "processing") {
+        return {
+            id: job.id,
+            status: job.status,
+        };
+    }
+
+    // Jika sudah selesai dan ada result
+    if (job.status === "completed" && job.result) {
+        return {
+            id: job.id,
+            status: job.status,
+            result: {
+                cv_match_rate: job.result.cvScore ?? null,
+                cv_feedback: job.result.cvFeedback ?? "",
+                project_score: job.result.projectScore ?? null,
+                project_feedback: job.result.projectFeedback ?? "",
+                overall_summary: job.result.overallSummary ?? "",
+            },
+        };
+    }
+
+    // Jika status completed tapi belum ada result (kasus gagal / belum disimpan)
+    return {
+        id: job.id,
+        status: job.status,
+        message: "Result not yet available",
+    };
+}
 
 module.exports = {
     createEvaluation,
+    getEvaluation,
 };

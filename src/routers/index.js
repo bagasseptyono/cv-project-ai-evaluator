@@ -7,7 +7,7 @@ const router = require("express").Router();
 const UploadMiddleware = require("../middlewares/upload.middleware");
 const FileController = require("../controllers/file.controller");
 const EvaluateController = require("../controllers/evaluate.controller");
-const { ingestRubrics } = require("../scripts/ingestRubric");
+const Ingest = require("../scripts/ingestVector");
 
 router.get("/", (req, res, next) => {
     res.status(200).json({
@@ -27,8 +27,15 @@ router.post(
     FileController.uploadFile
 );
 
+
 router.post('/evaluate', EvaluateController.createEvaluationJob)
-router.post("/ingest/rubrics", ingestRubrics);
+router.get('/result/:id', EvaluateController.getEvaluationResult)
+router.post("/ingest/rubrics", Ingest.ingestRubrics);
+router.post(
+    "/ingest",
+    UploadMiddleware.initializeUpload().single("file"),
+    Ingest.ingestDocument
+);
 
 // router.post
 

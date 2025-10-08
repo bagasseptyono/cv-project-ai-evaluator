@@ -32,23 +32,20 @@ const createEvaluationJob = async (req, res, next) => {
  * GET /result/:id
  * Retrieve job result (if completed)
  */
-const getEvaluationResult = async (req, res) => {
-    const { id } = req.params;
+const getEvaluationResult = async (req, res, next) => {
 
-    const job = await prisma.job.findUnique({
-        where: { id: Number(id) },
-        include: { result: true },
-    });
-
-    if (!job) return res.status(404).json({ message: "Job not found" });
-
-    res.json({
-        id: job.id,
-        status: job.status,
-        result: job.result || null,
-    });
+    try {
+        const { id } = req.params;
+    
+        const evaluation = await EvaluateService.getEvaluation(id);
+    
+        res.status(200).json(evaluation);
+    } catch (error) {
+        next(error)
+    }
 };
 
 module.exports = {
     createEvaluationJob,
+    getEvaluationResult
 }
