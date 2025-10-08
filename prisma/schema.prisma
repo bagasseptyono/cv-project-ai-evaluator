@@ -1,0 +1,74 @@
+// This is your Prisma schema file,
+// learn more about it in the docs: https://pris.ly/d/prisma-schema
+
+// Looking for ways to speed up your queries, or scale easily with your serverless or edge functions?
+// Try Prisma Accelerate: https://pris.ly/cli/accelerate-init
+
+generator client {
+  provider = "prisma-client-js"
+  // output   = "../src/generated/prisma"
+}
+
+datasource db {
+  provider = "mysql"
+  url      = env("DATABASE_URL")
+}
+
+model File {
+  id           Int        @id @default(autoincrement())
+  path         String
+  type         String     // "cv" | "report"
+  uploadedAt   DateTime   @default(now())
+
+  cvJobs       Job[]      @relation("CvFileRelation")
+  reportJobs   Job[]      @relation("ReportFileRelation")
+}
+
+model Job {
+  id         Int      @id @default(autoincrement())
+  jobTitle   String
+  cvId       Int
+  reportId   Int
+  status     String   @default("queued") // queued | processing | completed | failed
+  resultId   Int?     @unique
+  createdAt  DateTime @default(now())
+
+  // Relasi ke File (dua arah dengan nama sama persis)
+  cvFile     File     @relation("CvFileRelation", fields: [cvId], references: [id])
+  reportFile File     @relation("ReportFileRelation", fields: [reportId], references: [id])
+
+  // Relasi ke hasil evaluasi
+  result     EvaluationResult? @relation(fields: [resultId], references: [id])
+}
+
+model EvaluationResult {
+  id               Int      @id @default(autoincrement())
+  cvScore          Float?
+  cvFeedback       String?  @db.Text
+  projectScore     Float?
+  projectFeedback  String?  @db.Text
+  overallSummary   String?  @db.Text
+  createdAt        DateTime @default(now())
+
+  job              Job?
+}
+
+model ScoringRubric {
+  id         Int      @id @default(autoincrement())
+  type       String   // "cv" | "project"
+  title      String
+  createdAt  DateTime @default(now())
+  parameters ScoringParameter[]
+}
+
+model ScoringParameter {
+  id           Int      @id @default(autoincrement())
+  rubricId     Int
+  name         String
+  description  String
+  weight       Float
+  scaleDesc    String
+  createdAt    DateTime @default(now())
+
+  rubric       ScoringRubric @relation(fields: [rubricId], references: [id])
+}

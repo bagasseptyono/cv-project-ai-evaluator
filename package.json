@@ -1,0 +1,28 @@
+{
+  "name": "rakamin-test",
+  "version": "1.0.0",
+  "description": "",
+  "main": "index.js",
+  "type": "commonjs",
+  "scripts": {
+    "test": "echo \"Error: no test specified\" && exit 1",
+    "dev": "nodemon ./src/index.js"
+  },
+  "author": "",
+  "license": "ISC",
+  "dependencies": {
+    "@google/genai": "^1.22.0",
+    "@prisma/client": "^6.16.3",
+    "@qdrant/js-client-rest": "^1.15.1",
+    "axios": "^1.12.2",
+    "dotenv": "^17.2.3",
+    "express": "^5.1.0",
+    "multer": "^2.0.2",
+    "mysql2": "^3.15.1",
+    "pdf-parse": "^2.2.0",
+    "prisma": "^6.16.3"
+  },
+  "devDependencies": {
+    "nodemon": "^3.1.10"
+  }
+}
